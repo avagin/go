@@ -44,6 +44,8 @@ type SysProcAttr struct {
 	// users this should be set to false for mappings work.
 	GidMappingsEnableSetgroups bool
 	AmbientCaps                []uintptr // Ambient capabilities (Linux only)
+	Execveat                   bool      // Use the execveat system call
+	DirFd                      int       // A directory fd for the execveat system call
 }
 
 var (
@@ -137,6 +139,13 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 			nextfd = int(ufd)
 		}
 		fd[i] = int(ufd)
+	}
+	if nextfd < pipe {
+		nextfd = pipe
+	}
+	dirfd := sys.DirFd
+	if sys.Execveat && nextfd < dirfd {
+		nextfd = dirfd
 	}
 	nextfd++
 
@@ -332,6 +341,15 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 		pipe = nextfd
 		nextfd++
 	}
+	if sys.Execveat && dirfd >= 0 && dirfd < nextfd {
+		_, _, err1 = RawSyscall(_SYS_dup, uintptr(dirfd), uintptr(nextfd), 0)
+		if err1 != 0 {
+			goto childerror
+		}
+		RawSyscall(SYS_FCNTL, uintptr(nextfd), F_SETFD, FD_CLOEXEC)
+		dirfd = nextfd
+		nextfd++
+	}
 	for i = 0; i < len(fd); i++ {
 		if fd[i] >= 0 && fd[i] < int(i) {
 			if nextfd == pipe { // don't stomp on pipe
@@ -405,10 +423,19 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 	}
 
 	// Time to exec.
-	_, _, err1 = RawSyscall(SYS_EXECVE,
-		uintptr(unsafe.Pointer(argv0)),
-		uintptr(unsafe.Pointer(&argv[0])),
-		uintptr(unsafe.Pointer(&envv[0])))
+	if sys.Execveat {
+		_, _, err1 = RawSyscall6(SYS_EXECVEAT,
+			uintptr(dirfd),
+			uintptr(unsafe.Pointer(argv0)),
+			uintptr(unsafe.Pointer(&argv[0])),
+			uintptr(unsafe.Pointer(&envv[0])),
+			_AT_EMPTY_PATH, 0)
+	} else {
+		_, _, err1 = RawSyscall(SYS_EXECVE,
+			uintptr(unsafe.Pointer(argv0)),
+			uintptr(unsafe.Pointer(&argv[0])),
+			uintptr(unsafe.Pointer(&envv[0])))
+	}
 
 childerror:
 	// send error code on pipe

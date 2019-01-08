@@ -414,6 +414,7 @@ const (
 	_AT_REMOVEDIR        = C.AT_REMOVEDIR
 	_AT_SYMLINK_NOFOLLOW = C.AT_SYMLINK_NOFOLLOW
 	_AT_EACCESS          = C.AT_EACCESS
+	_AT_EMPTY_PATH       = C.AT_EMPTY_PATH
 )
 
 // Terminal handling

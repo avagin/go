@@ -468,6 +468,13 @@ func getCaps() (caps, error) {
 	return c, nil
 }
 
+func mustSupportExeveat(t *testing.T) {
+	_, _, errno := syscall.Syscall6(syscall.SYS_EXECVEAT, 0, 0, 0, 0, 0, 0)
+	if errno == syscall.ENOSYS {
+		t.Skip("the execveat system call isn't supported")
+	}
+}
+
 func mustSupportAmbientCaps(t *testing.T) {
 	var uname syscall.Utsname
 	if err := syscall.Uname(&uname); err != nil {
@@ -589,6 +596,27 @@ func TestAmbientCaps(t *testing.T) {
 			Gid: uint32(gid),
 		},
 		AmbientCaps: []uintptr{CAP_SYS_TIME},
+	}
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err.Error())
+	}
+}
+
+func TestExecveat(t *testing.T) {
+	mustSupportExeveat(t)
+
+	e, err := os.Open(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+
+	cmd := exec.Command("", "-test.run=TestAmbientCapsHelper")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Execveat: true,
+		DirFd:    int(e.Fd()),
 	}
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err.Error())
